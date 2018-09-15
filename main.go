@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"sort"
 	"strconv"
@@ -43,7 +42,6 @@ func main() {
 	}
 
 	clientID := "gopher_" + strings.Split(newUUID.String(), "-")[0]
-	log.Println(clientID)
 
 	// Define IRC connection parameters.
 	var (
@@ -65,7 +63,6 @@ func main() {
 
 	// Register "welcome" event callback.
 	ircConn.AddCallback("001", func(e *irc.Event) {
-		log.Println("Got 001")
 		// Send "LIST" command.
 		ircConn.SendRaw("LIST")
 	})
@@ -76,7 +73,7 @@ func main() {
 		channel := e.Arguments[1]
 		userCount, err := strconv.Atoi(e.Arguments[2])
 		if err != nil {
-			log.Println("Error during int conversion:", err)
+			fmt.Println("Error during int conversion:", err)
 		} else {
 			listResults.Store(channel, userCount)
 		}
@@ -87,9 +84,7 @@ func main() {
 		// Add channels with more users than `minChannelUsers` to `filteredChannels`.
 		filteredChannels := make([]string, 0)
 		listResults.Range(func(channelName, userCount interface{}) bool {
-			log.Println(userCount.(int))
 			if userCount.(int) > *minUserCountFlag {
-				log.Println("Appending to filteredChanels:", channelName.(string))
 				filteredChannels = append(filteredChannels, channelName.(string))
 			}
 			return true
