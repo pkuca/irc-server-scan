@@ -54,8 +54,8 @@ func main() {
 
 	// Initialize IRC connection.
 	ircConn := irc.IRC(nick, user)
-	ircConn.Debug = true
-	ircConn.VerboseCallbackHandler = true
+	ircConn.Debug = false
+	ircConn.VerboseCallbackHandler = false
 	ircConn.UseTLS = true
 	ircConn.TLSConfig = &tls.Config{
 		ServerName: strings.Split(*serverFlag, ":")[0],
