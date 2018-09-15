@@ -4,13 +4,13 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"math/rand"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 
-	"github.com/gofrs/uuid"
 	"github.com/thoj/go-ircevent"
 )
 
@@ -34,14 +34,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Generate UUID nick/user.
-	newUUID, err := uuid.NewV4()
-	if err != nil {
-		fmt.Println("fatal error generating nick/user UUID", err)
-		os.Exit(1)
-	}
-
-	clientID := "gopher_" + strings.Split(newUUID.String(), "-")[0]
+	randomIntString := strconv.Itoa(rand.Intn(500))
+	clientID := "gopher_" + randomIntString
 
 	// Define IRC connection parameters.
 	var (
