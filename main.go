@@ -24,7 +24,10 @@ func main() {
 	minUserCountFlag := flag.Int(
 		"minusers",
 		500,
-		"optional: minimum channel population for displaying in terminal output - default '500'",
+		strings.Join([]string{
+			"optional: minimum channel population for displaying in terminal output -",
+			"default '500'",
+		}, " "),
 	)
 
 	flag.Parse()
@@ -39,30 +42,27 @@ func main() {
 
 	// Define IRC connection parameters.
 	var (
-		server = *serverFlag
-		nick   = clientID
-		user   = clientID
-		// listResults = make(map[string]int)
+		server      = *serverFlag
+		nick        = clientID
+		user        = clientID
 		listResults = new(sync.Map)
 	)
 
 	// Initialize IRC connection.
-	ircConn := irc.IRC(nick, user)
-	ircConn.Debug = false
-	ircConn.VerboseCallbackHandler = false
-	ircConn.UseTLS = true
-	ircConn.TLSConfig = &tls.Config{
+	conn := irc.IRC(nick, user)
+	conn.UseTLS = true
+	conn.TLSConfig = &tls.Config{
 		ServerName: strings.Split(*serverFlag, ":")[0],
 	}
 
 	// Register "welcome" event callback.
-	ircConn.AddCallback("001", func(e *irc.Event) {
+	conn.AddCallback("001", func(e *irc.Event) {
 		// Send "LIST" command.
-		ircConn.SendRaw("LIST")
+		conn.SendRaw("LIST")
 	})
 
 	// Register LIST item response callback.
-	ircConn.AddCallback("322", func(e *irc.Event) {
+	conn.AddCallback("322", func(e *irc.Event) {
 		// On "322" events, populate `listResults` with channel data.
 		channel := e.Arguments[1]
 		userCount, err := strconv.Atoi(e.Arguments[2])
@@ -74,7 +74,7 @@ func main() {
 	})
 
 	// Register LIST Complete response callback.
-	ircConn.AddCallback("323", func(e *irc.Event) {
+	conn.AddCallback("323", func(e *irc.Event) {
 		// Add channels with more users than `minChannelUsers` to `filteredChannels`.
 		filteredChannels := make([]string, 0)
 		listResults.Range(func(channelName, userCount interface{}) bool {
@@ -95,21 +95,21 @@ func main() {
 			userCount, ok := listResults.Load(channelName)
 			if ok {
 				fmt.Println(
-					"["+channelName+"]",
+					channelName,
 					"["+strconv.Itoa(userCount.(int))+"]",
 				)
 			}
 		}
 
 		// Close the IRC connection.
-		ircConn.Quit()
-
+		conn.Quit()
 	})
 
 	// Start connection goroutines.
-	if err := ircConn.Connect(server); err != nil {
+	if err := conn.Connect(server); err != nil {
 		fmt.Println("Connection failed:", err)
+		os.Exit(0)
 	}
 
-	ircConn.Loop()
+	conn.Loop()
 }
