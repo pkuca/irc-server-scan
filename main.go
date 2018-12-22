@@ -11,74 +11,101 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/thoj/go-ircevent"
+	irc "github.com/thoj/go-ircevent"
 )
 
 func main() {
-	// Parse command line arguments.
-	serverFlag := flag.String(
-		"server",
-		"",
-		"required: server to list channel populations for - 'irc.freenode.net:6697'",
-	)
-	minUserCountFlag := flag.Int(
-		"minusers",
-		500,
-		strings.Join([]string{
-			"optional: minimum channel population for displaying in terminal output -",
-			"default '500'",
-		}, " "),
-	)
+	serverAddress, minUsers, outputFormat := parseFlags()
 
-	flag.Parse()
-
-	if *serverFlag == "" {
+	if serverAddress == "" {
 		fmt.Println("-server argument required. See -h for usage.")
 		os.Exit(1)
 	}
 
-	randomIntString := strconv.Itoa(rand.Intn(500))
-	clientID := "gopher_" + randomIntString
-
-	// Define IRC connection parameters.
 	var (
-		server      = *serverFlag
-		nick        = clientID
-		user        = clientID
-		listResults = new(sync.Map)
+		idString = "gopher_" + strconv.Itoa(rand.Intn(500))
+		results  = new(sync.Map)
 	)
 
-	// Initialize IRC connection.
-	conn := irc.IRC(nick, user)
+	conn := irc.IRC(idString, idString)
 	conn.UseTLS = true
-	conn.TLSConfig = &tls.Config{
-		ServerName: strings.Split(*serverFlag, ":")[0],
+	conn.TLSConfig = &tls.Config{ServerName: strings.Split(serverAddress, ":")[0]}
+	conn.AddCallback("001", callback001(conn))
+	conn.AddCallback("322", callback322(results))
+	conn.AddCallback("323", callback323(conn, results, minUsers, outputFormat))
+
+	if err := conn.Connect(serverAddress); err != nil {
+		fmt.Println("conn.Connect:", err)
+		os.Exit(0)
 	}
 
-	// Register "welcome" event callback.
-	conn.AddCallback("001", func(e *irc.Event) {
-		// Send "LIST" command.
-		conn.SendRaw("LIST")
-	})
+	conn.Loop()
+}
 
-	// Register LIST item response callback.
-	conn.AddCallback("322", func(e *irc.Event) {
-		// On "322" events, populate `listResults` with channel data.
+func parseFlags() (string, int, string) {
+	serverAddress := flag.String(
+		"server",
+		"",
+		fmt.Sprintf(
+			"%v",
+			"required: server to list channel populations for",
+		),
+	)
+
+	minUsers := flag.Int(
+		"minusers",
+		500,
+		fmt.Sprintf(
+			"%v %v",
+			"optional: minimum channel population for displaying in terminal output",
+			"(default: 500)",
+		),
+	)
+
+	outputFormat := flag.String(
+		"outputformat",
+		"list",
+		fmt.Sprintf(
+			"%v",
+			"optional: can be 'list' or 'csv' (default: list)",
+		),
+	)
+
+	flag.Parse()
+
+	return *serverAddress, *minUsers, *outputFormat
+}
+
+// callback001 sends a LIST command to the server on a successful connection event.
+func callback001(conn *irc.Connection) func(e *irc.Event) {
+	return func(e *irc.Event) {
+		conn.SendRaw("LIST")
+	}
+}
+
+// callback322 populates `results` with channel data on LIST response events.
+func callback322(results *sync.Map) func(e *irc.Event) {
+	return func(e *irc.Event) {
 		channel := e.Arguments[1]
-		userCount, err := strconv.Atoi(e.Arguments[2])
-		if err != nil {
+		if userCount, err := strconv.Atoi(e.Arguments[2]); err != nil {
 			fmt.Println("Error during int conversion:", err)
 		} else {
-			listResults.Store(channel, userCount)
+			results.Store(channel, userCount)
 		}
-	})
+	}
 
-	// Register LIST Complete response callback.
-	conn.AddCallback("323", func(e *irc.Event) {
-		// Add channels with more users than `minChannelUsers` to `filteredChannels`.
+}
+
+// callback323 operates on collected channel data, printing populations in a given `outputFormat`.
+func callback323(conn *irc.Connection, results *sync.Map, minUsers int, outputFormat string) func(e *irc.Event) {
+	return func(e *irc.Event) {
+		// Close the IRC connection. Operate on `results` after a clean disconnect.
+		conn.Quit()
+
+		// Add channels with more users than `minUsers` to `filteredChannels`.
 		filteredChannels := make([]string, 0)
-		listResults.Range(func(channelName, userCount interface{}) bool {
-			if userCount.(int) > *minUserCountFlag {
+		results.Range(func(channelName, userCount interface{}) bool {
+			if userCount.(int) > minUsers {
 				filteredChannels = append(filteredChannels, channelName.(string))
 			}
 			return true
@@ -90,26 +117,29 @@ func main() {
 		// Log total channel count.
 		fmt.Println("Got", len(filteredChannels), "results")
 
-		// Log channel info for all `filteredChannels`.
-		for _, channelName := range filteredChannels {
-			userCount, ok := listResults.Load(channelName)
-			if ok {
-				fmt.Println(
-					channelName,
-					"["+strconv.Itoa(userCount.(int))+"]",
-				)
-			}
+		switch outputFormat {
+		case "list":
+			channelsListFormat(filteredChannels, results)
+		case "csv":
+			channelsCSVFormat(filteredChannels)
 		}
-
-		// Close the IRC connection.
-		conn.Quit()
-	})
-
-	// Start connection goroutines.
-	if err := conn.Connect(server); err != nil {
-		fmt.Println("Connection failed:", err)
-		os.Exit(0)
 	}
+}
 
-	conn.Loop()
+// channelsListFormat writes channel populations to stdout.
+func channelsListFormat(channels []string, results *sync.Map) {
+	for _, channelName := range channels {
+		if userCount, ok := results.Load(channelName); ok {
+			fmt.Println(channelName, "["+strconv.Itoa(userCount.(int))+"]")
+		}
+	}
+}
+
+// channelsCSVFormat writes channel names as comma-separated values.
+func channelsCSVFormat(channels []string) {
+	csvString := ""
+	for _, channelName := range channels {
+		csvString += channelName + ","
+	}
+	fmt.Println(csvString)
 }
