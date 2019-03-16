@@ -1,9 +1,9 @@
 package main
 
 import (
-	"crypto/tls"
 	"flag"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"sort"
@@ -11,97 +11,62 @@ import (
 	"strings"
 	"sync"
 
-	irc "github.com/thoj/go-ircevent"
+	"github.com/pkuca/irc"
 )
 
 func main() {
-	serverAddress, minUsers, outputFormat := parseFlags()
+	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
 
-	if serverAddress == "" {
-		fmt.Println("-server argument required. See -h for usage.")
-		os.Exit(1)
+	host, port, useTLS, minUsers, outputFormat, err := parseFlags()
+	if err != nil {
+		log.Fatalln(err)
 	}
 
 	var (
+		handler  = irc.NewEventHandler()
 		idString = "gopher_" + strconv.Itoa(rand.Intn(500))
 		results  = new(sync.Map)
+		client   = &irc.Client{
+			Handler:  handler,
+			Host:     host,
+			Ident:    idString,
+			Nickname: idString,
+			Port:     port,
+			Realname: idString,
+			TLS:      useTLS,
+		}
 	)
 
-	conn := irc.IRC(idString, idString)
-	conn.UseTLS = true
-	conn.TLSConfig = &tls.Config{ServerName: strings.Split(serverAddress, ":")[0]}
-	conn.AddCallback("001", callback001(conn))
-	conn.AddCallback("322", callback322(results))
-	conn.AddCallback("323", callback323(conn, results, minUsers, outputFormat))
-
-	if err := conn.Connect(serverAddress); err != nil {
-		fmt.Println("conn.Connect:", err)
-		os.Exit(0)
-	}
-
-	conn.Loop()
+	handler.On("001", callback001())
+	handler.On("322", callback322(results))
+	handler.On("323", callback323(results, minUsers, outputFormat))
+	log.Fatalln(client.Run())
 }
 
-func parseFlags() (string, int, string) {
-	serverAddress := flag.String(
-		"server",
-		"",
-		fmt.Sprintf(
-			"%v",
-			"required: server to list channel populations for",
-		),
-	)
-
-	minUsers := flag.Int(
-		"minusers",
-		500,
-		fmt.Sprintf(
-			"%v %v",
-			"optional: minimum channel population for displaying in terminal output",
-			"(default: 500)",
-		),
-	)
-
-	outputFormat := flag.String(
-		"outputformat",
-		"list",
-		fmt.Sprintf(
-			"%v",
-			"optional: can be 'list' or 'csv' (default: list)",
-		),
-	)
-
-	flag.Parse()
-
-	return *serverAddress, *minUsers, *outputFormat
-}
-
-// callback001 sends a LIST command to the server on a successful connection event.
-func callback001(conn *irc.Connection) func(e *irc.Event) {
-	return func(e *irc.Event) {
-		conn.SendRaw("LIST")
+func callback001() func(c *irc.Client, m *irc.Message) {
+	return func(c *irc.Client, m *irc.Message) {
+		log.Println("starting scan...")
+		c.Write("LIST")
 	}
 }
 
-// callback322 populates `results` with channel data on LIST response events.
-func callback322(results *sync.Map) func(e *irc.Event) {
-	return func(e *irc.Event) {
-		channel := e.Arguments[1]
-		if userCount, err := strconv.Atoi(e.Arguments[2]); err != nil {
+func callback322(results *sync.Map) func(c *irc.Client, m *irc.Message) {
+	return func(c *irc.Client, m *irc.Message) {
+		var (
+			fields  = strings.Fields(m.Content)
+			channel = fields[1]
+			count   = fields[2]
+		)
+		if userCount, err := strconv.Atoi(count); err != nil {
 			fmt.Println("Error during int conversion:", err)
 		} else {
 			results.Store(channel, userCount)
 		}
 	}
-
 }
 
-// callback323 operates on collected channel data, printing populations in a given `outputFormat`.
-func callback323(conn *irc.Connection, results *sync.Map, minUsers int, outputFormat string) func(e *irc.Event) {
-	return func(e *irc.Event) {
-		// Close the IRC connection. Operate on `results` after a clean disconnect.
-		conn.Quit()
-
+func callback323(results *sync.Map, minUsers int, outputFormat string) func(c *irc.Client, m *irc.Message) {
+	return func(c *irc.Client, m *irc.Message) {
 		// Add channels with more users than `minUsers` to `filteredChannels`.
 		filteredChannels := make([]string, 0)
 		results.Range(func(channelName, userCount interface{}) bool {
@@ -120,10 +85,57 @@ func callback323(conn *irc.Connection, results *sync.Map, minUsers int, outputFo
 		switch outputFormat {
 		case "list":
 			channelsListFormat(filteredChannels, results)
+			os.Exit(0)
 		case "csv":
 			channelsCSVFormat(filteredChannels)
+			os.Exit(0)
 		}
+
 	}
+}
+
+func parseFlags() (string, string, bool, int, string, error) {
+	host := flag.String(
+		"host",
+		"",
+		"required: target server host address",
+	)
+
+	port := flag.String(
+		"port",
+		"",
+		"required: target server port",
+	)
+
+	tls := flag.Bool(
+		"tls",
+		false,
+		"optional: connect using tls (default: false)",
+	)
+
+	minUsers := flag.Int(
+		"minusers",
+		500,
+		"optional: minimum channel population for results (default: 500)",
+	)
+
+	outputFormat := flag.String(
+		"outputformat",
+		"list",
+		"optional: can be 'list' or 'csv' (default: list)",
+	)
+
+	flag.Parse()
+
+	if *host == "" {
+		return "", "", false, 0, "", fmt.Errorf("-host argument is required")
+	}
+
+	if *port == "" {
+		return "", "", false, 0, "", fmt.Errorf("-port argument is required")
+	}
+
+	return *host, *port, *tls, *minUsers, *outputFormat, nil
 }
 
 // channelsListFormat writes channel populations to stdout.
