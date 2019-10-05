@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"math/rand"
 	"os"
 	"sort"
@@ -15,37 +14,55 @@ import (
 )
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
-
-	host, port, useTLS, minUsers, outputFormat, err := parseFlags()
+	host, port, tls, minUsers, format, err := parseFlags()
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println("parseFlags:", err)
+		os.Exit(1)
 	}
 
 	var (
-		handler  = irc.NewEventHandler()
-		idString = "gopher_" + strconv.Itoa(rand.Intn(500))
-		results  = new(sync.Map)
-		client   = &irc.Client{
-			Handler:  handler,
-			Host:     host,
-			Ident:    idString,
-			Nickname: idString,
-			Port:     port,
-			Realname: idString,
-			TLS:      useTLS,
+		results = new(sync.Map)
+		opts    = &irc.ClientOptions{
+			Host:      host,
+			Port:      port,
+			EnableTLS: tls,
 		}
+		client = initClient(opts, format, minUsers, results)
 	)
 
-	handler.On("001", callback001())
-	handler.On("322", callback322(results))
-	handler.On("323", callback323(results, minUsers, outputFormat))
-	log.Fatalln(client.Run())
+	if err := client.Connect(); err != nil {
+		fmt.Println("client.Connect:", err)
+		os.Exit(1)
+	}
+
+	if err := client.Run(); err != nil {
+		fmt.Println("client.Run:", err)
+		os.Exit(1)
+	}
+}
+
+func initClient(ircOptions *irc.ClientOptions, format string, minUsers int, results *sync.Map) *irc.Client {
+	idString := fmt.Sprintf("g_%v", rand.Intn(500))
+
+	ircOptions.Ident = idString
+	ircOptions.Nickname = idString
+	ircOptions.Realname = idString
+
+	client := &irc.Client{
+		Options: ircOptions,
+		Handler: irc.NewEventHandler(),
+	}
+
+	client.Handler.On("001", callback001())
+	client.Handler.On("322", callback322(results))
+	client.Handler.On("323", callback323(results, minUsers, format))
+
+	return client
 }
 
 func callback001() func(c *irc.Client, m *irc.Message) {
 	return func(c *irc.Client, m *irc.Message) {
-		log.Println("starting scan...")
+		fmt.Println("starting scan...")
 		c.Write("LIST")
 	}
 }
@@ -58,14 +75,14 @@ func callback322(results *sync.Map) func(c *irc.Client, m *irc.Message) {
 			count   = fields[2]
 		)
 		if userCount, err := strconv.Atoi(count); err != nil {
-			fmt.Println("Error during int conversion:", err)
+			fmt.Println("couldn't convert string to int:", err)
 		} else {
 			results.Store(channel, userCount)
 		}
 	}
 }
 
-func callback323(results *sync.Map, minUsers int, outputFormat string) func(c *irc.Client, m *irc.Message) {
+func callback323(results *sync.Map, minUsers int, format string) func(c *irc.Client, m *irc.Message) {
 	return func(c *irc.Client, m *irc.Message) {
 		// Add channels with more users than `minUsers` to `filteredChannels`.
 		filteredChannels := make([]string, 0)
@@ -79,21 +96,29 @@ func callback323(results *sync.Map, minUsers int, outputFormat string) func(c *i
 		// Sort channels alphabetically.
 		sort.Strings(filteredChannels)
 
-		// Log total channel count.
+		// Print total channel count.
 		fmt.Println("Got", len(filteredChannels), "results")
 
-		switch outputFormat {
+		switch format {
 		case "list":
 			channelsListFormat(filteredChannels, results)
+			if err := c.Close(); err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
 			os.Exit(0)
 		case "csv":
 			channelsCSVFormat(filteredChannels)
+			if err := c.Close(); err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
 			os.Exit(0)
 		}
-
 	}
 }
 
+// parseFlags obtains irc client options from the command line
 func parseFlags() (string, string, bool, int, string, error) {
 	host := flag.String(
 		"host",
@@ -110,19 +135,19 @@ func parseFlags() (string, string, bool, int, string, error) {
 	tls := flag.Bool(
 		"tls",
 		false,
-		"optional: connect using tls (default: false)",
+		"optional: connect using tls",
 	)
 
 	minUsers := flag.Int(
 		"minusers",
 		500,
-		"optional: minimum channel population for results (default: 500)",
+		"optional: minimum channel population for results",
 	)
 
-	outputFormat := flag.String(
-		"outputformat",
+	format := flag.String(
+		"format",
 		"list",
-		"optional: can be 'list' or 'csv' (default: list)",
+		"optional: can be 'list' or 'csv'",
 	)
 
 	flag.Parse()
@@ -135,7 +160,7 @@ func parseFlags() (string, string, bool, int, string, error) {
 		return "", "", false, 0, "", fmt.Errorf("-port argument is required")
 	}
 
-	return *host, *port, *tls, *minUsers, *outputFormat, nil
+	return *host, *port, *tls, *minUsers, *format, nil
 }
 
 // channelsListFormat writes channel populations to stdout.
