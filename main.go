@@ -178,5 +178,6 @@ func channelsCSVFormat(channels []string) {
 	for _, channelName := range channels {
 		csvString += channelName + ","
 	}
+
 	fmt.Println(csvString)
 }
