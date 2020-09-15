@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/go-irc/irc"
+	"github.com/olekukonko/tablewriter"
 	"github.com/urfave/cli/v2"
 )
 
@@ -80,6 +81,12 @@ func NewApp() *cli.App {
 	}
 }
 
+type channelInfo struct {
+	Name    string
+	Visible int
+	Topic   string
+}
+
 func ircHandler(results *sync.Map, c *cli.Context) irc.HandlerFunc {
 	return func(cl *irc.Client, m *irc.Message) {
 		switch m.Command {
@@ -92,47 +99,63 @@ func ircHandler(results *sync.Map, c *cli.Context) irc.HandlerFunc {
 			}
 		case "322":
 			var (
-				fields  = m.Params
-				channel = fields[1]
-				count   = fields[2]
+				channel = m.Params[1]
+				visible = m.Params[2]
+				topic   = m.Params[3]
 			)
 
-			if userCount, err := strconv.Atoi(count); err != nil {
+			visibleInt, err := strconv.Atoi(visible)
+			if err != nil {
 				fmt.Println("unable to convert string to int:", err)
-			} else {
-				results.Store(channel, userCount)
+
+				return
 			}
+
+			results.Store(channel, &channelInfo{channel, visibleInt, topic})
 		case "323":
 			// Add channels with more users than `minUsers` to `filteredChannels`.
-			filteredChannels := make([]string, 0)
+			filteredChannels := []*channelInfo{}
 
-			results.Range(func(channelName, userCount interface{}) bool {
-				if userCount.(int) > c.Int("minusers") {
-					filteredChannels = append(filteredChannels, channelName.(string))
+			results.Range(func(_, info interface{}) bool {
+				channelInfo := info.(*channelInfo)
+				if channelInfo.Visible > c.Int("minusers") {
+					filteredChannels = append(filteredChannels, channelInfo)
 				}
 
 				return true
 			})
 
-			// Sort channels alphabetically.
-			sort.Strings(filteredChannels)
-
 			// Print total channel count.
-			fmt.Println("Got", len(filteredChannels), "results")
+			fmt.Println(len(filteredChannels), "results")
+
+			// Sort channels alphabetically.
+			sort.Slice(filteredChannels, func(i, j int) bool {
+				return filteredChannels[i].Name < filteredChannels[j].Name
+			})
 
 			switch c.String("format") {
 			case "list":
-				for _, channelName := range filteredChannels {
-					if userCount, ok := results.Load(channelName); ok {
-						fmt.Println(channelName, "["+strconv.Itoa(userCount.(int))+"]")
-					}
+				data := [][]string{}
+				for _, channelInfo := range filteredChannels {
+					// fmt.Println(channelInfo.Name, "["+strconv.Itoa(channelInfo.Visible)+"]", channelInfo.Topic)
+					data = append(data, []string{
+						channelInfo.Name,
+						strconv.Itoa(channelInfo.Visible),
+						channelInfo.Topic,
+					})
 				}
+
+				table := tablewriter.NewWriter(os.Stdout)
+				table.SetHeader([]string{"Name", "Visible", "Topic"})
+				table.SetAutoWrapText(false)
+				table.AppendBulk(data)
+				table.Render()
 
 				os.Exit(0)
 			case "csv":
 				csvString := ""
-				for _, channelName := range filteredChannels {
-					csvString += channelName + ","
+				for _, channelInfo := range filteredChannels {
+					csvString += channelInfo.Name + ","
 				}
 
 				fmt.Println(csvString)
