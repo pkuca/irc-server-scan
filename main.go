@@ -1,183 +1,143 @@
 package main
 
 import (
-	"flag"
+	"context"
 	"fmt"
+	"log"
 	"math/rand"
+	"net"
 	"os"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 
-	"github.com/pkuca/irc"
+	"github.com/go-irc/irc"
+	"github.com/urfave/cli/v2"
 )
 
 func main() {
-	host, port, tls, minUsers, format, err := parseFlags()
-	if err != nil {
-		fmt.Println("parseFlags:", err)
-		os.Exit(1)
-	}
-
-	var (
-		results = new(sync.Map)
-		opts    = &irc.ClientOptions{
-			Host:      host,
-			Port:      port,
-			EnableTLS: tls,
-		}
-		client = initClient(opts, format, minUsers, results)
-	)
-
-	if err := client.Connect(); err != nil {
-		fmt.Println("client.Connect:", err)
-		os.Exit(1)
-	}
-
-	if err := client.Run(); err != nil {
-		fmt.Println("client.Run:", err)
-		os.Exit(1)
+	app := NewApp()
+	if err := app.Run(os.Args); err != nil {
+		log.Fatal(err)
 	}
 }
 
-func initClient(ircOptions *irc.ClientOptions, format string, minUsers int, results *sync.Map) *irc.Client {
-	idString := fmt.Sprintf("g_%v", rand.Intn(500))
-
-	ircOptions.Ident = idString
-	ircOptions.Nickname = idString
-	ircOptions.Realname = idString
-
-	client := &irc.Client{
-		Options: ircOptions,
-		Handler: irc.NewEventHandler(),
-	}
-
-	client.Handler.On("001", callback001())
-	client.Handler.On("322", callback322(results))
-	client.Handler.On("323", callback323(results, minUsers, format))
-
-	return client
-}
-
-func callback001() func(c *irc.Client, m *irc.Message) {
-	return func(c *irc.Client, m *irc.Message) {
-		fmt.Println("starting scan...")
-		c.Write("LIST")
-	}
-}
-
-func callback322(results *sync.Map) func(c *irc.Client, m *irc.Message) {
-	return func(c *irc.Client, m *irc.Message) {
-		var (
-			fields  = strings.Fields(m.Content)
-			channel = fields[1]
-			count   = fields[2]
-		)
-		if userCount, err := strconv.Atoi(count); err != nil {
-			fmt.Println("couldn't convert string to int:", err)
-		} else {
-			results.Store(channel, userCount)
-		}
-	}
-}
-
-func callback323(results *sync.Map, minUsers int, format string) func(c *irc.Client, m *irc.Message) {
-	return func(c *irc.Client, m *irc.Message) {
-		// Add channels with more users than `minUsers` to `filteredChannels`.
-		filteredChannels := make([]string, 0)
-		results.Range(func(channelName, userCount interface{}) bool {
-			if userCount.(int) > minUsers {
-				filteredChannels = append(filteredChannels, channelName.(string))
+func NewApp() *cli.App {
+	return &cli.App{
+		Name:      "irc-server-scan",
+		Usage:     "scan an irc server for channel populations",
+		UsageText: "irc-server-scan [global options]",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:     "host",
+				Usage:    "target server address",
+				Required: true,
+			},
+			&cli.StringFlag{
+				Name:     "port",
+				Usage:    "target server port",
+				Required: true,
+			},
+			&cli.StringFlag{
+				Name:    "format",
+				Aliases: []string{"f"},
+				Usage:   "can also be 'csv'",
+				Value:   "list",
+			},
+			&cli.IntFlag{
+				Name:    "minusers",
+				Aliases: []string{"m"},
+				Usage:   "only list channels with users exceeding this value",
+				Value:   500, //nolint:gomnd
+			},
+		},
+		Action: func(c *cli.Context) error {
+			conn, err := net.Dial("tcp", fmt.Sprintf("%s:%s", c.String("host"), c.String("port")))
+			if err != nil {
+				return err
 			}
-			return true
-		})
 
-		// Sort channels alphabetically.
-		sort.Strings(filteredChannels)
+			var (
+				results  = new(sync.Map)
+				idString = fmt.Sprintf("g_%v", rand.Intn(500)) //nolint:gomnd,gosec
+			)
 
-		// Print total channel count.
-		fmt.Println("Got", len(filteredChannels), "results")
+			config := irc.ClientConfig{
+				Nick:    idString,
+				Pass:    "",
+				User:    idString,
+				Name:    idString,
+				Handler: ircHandler(results, c),
+			}
 
-		switch format {
-		case "list":
-			channelsListFormat(filteredChannels, results)
-			if err := c.Close(); err != nil {
-				fmt.Println(err)
+			client := irc.NewClient(conn, config)
+			if err := client.RunContext(context.Background()); err != nil {
+				return err
+			}
+
+			return nil
+		},
+	}
+}
+
+func ircHandler(results *sync.Map, c *cli.Context) irc.HandlerFunc {
+	return func(cl *irc.Client, m *irc.Message) {
+		switch m.Command {
+		case "001":
+			fmt.Println("starting scan...")
+
+			if err := cl.Write("LIST"); err != nil {
+				fmt.Println("error writing LIST command:", err)
 				os.Exit(1)
 			}
-			os.Exit(0)
-		case "csv":
-			channelsCSVFormat(filteredChannels)
-			if err := c.Close(); err != nil {
-				fmt.Println(err)
-				os.Exit(1)
+		case "322":
+			var (
+				fields  = m.Params
+				channel = fields[1]
+				count   = fields[2]
+			)
+
+			if userCount, err := strconv.Atoi(count); err != nil {
+				fmt.Println("unable to convert string to int:", err)
+			} else {
+				results.Store(channel, userCount)
 			}
-			os.Exit(0)
+		case "323":
+			// Add channels with more users than `minUsers` to `filteredChannels`.
+			filteredChannels := make([]string, 0)
+
+			results.Range(func(channelName, userCount interface{}) bool {
+				if userCount.(int) > c.Int("minusers") {
+					filteredChannels = append(filteredChannels, channelName.(string))
+				}
+
+				return true
+			})
+
+			// Sort channels alphabetically.
+			sort.Strings(filteredChannels)
+
+			// Print total channel count.
+			fmt.Println("Got", len(filteredChannels), "results")
+
+			switch c.String("format") {
+			case "list":
+				for _, channelName := range filteredChannels {
+					if userCount, ok := results.Load(channelName); ok {
+						fmt.Println(channelName, "["+strconv.Itoa(userCount.(int))+"]")
+					}
+				}
+
+				os.Exit(0)
+			case "csv":
+				csvString := ""
+				for _, channelName := range filteredChannels {
+					csvString += channelName + ","
+				}
+
+				fmt.Println(csvString)
+				os.Exit(0)
+			}
 		}
 	}
-}
-
-// parseFlags obtains irc client options from the command line
-func parseFlags() (string, string, bool, int, string, error) {
-	host := flag.String(
-		"host",
-		"",
-		"required: target server host address",
-	)
-
-	port := flag.String(
-		"port",
-		"",
-		"required: target server port",
-	)
-
-	tls := flag.Bool(
-		"tls",
-		false,
-		"optional: connect using tls",
-	)
-
-	minUsers := flag.Int(
-		"minusers",
-		500,
-		"optional: minimum channel population for results",
-	)
-
-	format := flag.String(
-		"format",
-		"list",
-		"optional: can be 'list' or 'csv'",
-	)
-
-	flag.Parse()
-
-	if *host == "" {
-		return "", "", false, 0, "", fmt.Errorf("-host argument is required")
-	}
-
-	if *port == "" {
-		return "", "", false, 0, "", fmt.Errorf("-port argument is required")
-	}
-
-	return *host, *port, *tls, *minUsers, *format, nil
-}
-
-// channelsListFormat writes channel populations to stdout.
-func channelsListFormat(channels []string, results *sync.Map) {
-	for _, channelName := range channels {
-		if userCount, ok := results.Load(channelName); ok {
-			fmt.Println(channelName, "["+strconv.Itoa(userCount.(int))+"]")
-		}
-	}
-}
-
-// channelsCSVFormat writes channel names as comma-separated values.
-func channelsCSVFormat(channels []string) {
-	csvString := ""
-	for _, channelName := range channels {
-		csvString += channelName + ","
-	}
-
-	fmt.Println(csvString)
 }
