@@ -53,7 +53,8 @@ func NewApp() *cli.App {
 			},
 		},
 		Action: func(c *cli.Context) error {
-			conn, err := net.Dial("tcp", fmt.Sprintf("%s:%s", c.String("host"), c.String("port")))
+			addr := fmt.Sprintf("%s:%s", c.String("host"), c.String("port"))
+			conn, err := net.Dial("tcp", addr)
 			if err != nil {
 				return err
 			}
@@ -137,7 +138,6 @@ func ircHandler(results *sync.Map, c *cli.Context) irc.HandlerFunc {
 			case "list":
 				data := [][]string{}
 				for _, channelInfo := range filteredChannels {
-					// fmt.Println(channelInfo.Name, "["+strconv.Itoa(channelInfo.Visible)+"]", channelInfo.Topic)
 					data = append(data, []string{
 						channelInfo.Name,
 						strconv.Itoa(channelInfo.Visible),
