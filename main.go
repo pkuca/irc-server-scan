@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/go-irc/irc"
@@ -153,12 +154,13 @@ func ircHandler(results *sync.Map, c *cli.Context) irc.HandlerFunc {
 
 				os.Exit(0)
 			case "csv":
-				csvString := ""
+				channels := []string{}
 				for _, channelInfo := range filteredChannels {
-					csvString += channelInfo.Name + ","
+					channels = append(channels, channelInfo.Name)
 				}
 
-				fmt.Println(csvString)
+				fmt.Println(strings.Join(channels, ","))
+
 				os.Exit(0)
 			}
 		}
