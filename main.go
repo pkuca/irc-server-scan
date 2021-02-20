@@ -52,6 +52,11 @@ func NewApp() *cli.App {
 				Usage:   "only list channels with users exceeding this value",
 				Value:   500, //nolint:gomnd
 			},
+			&cli.IntFlag{
+				Name:  "topiclength",
+				Usage: "truncate channel descriptions in 'list' format to this length",
+				Value: 125, //nolint:gomnd
+			},
 		},
 		Action: func(c *cli.Context) error {
 			addr := fmt.Sprintf("%s:%s", c.String("host"), c.String("port"))
@@ -90,6 +95,16 @@ type channelInfo struct {
 }
 
 func ircHandler(results *sync.Map, c *cli.Context) irc.HandlerFunc {
+	options := &struct {
+		Format      string
+		MinUsers    int
+		TopicLength int
+	}{
+		Format:      c.String("format"),
+		MinUsers:    c.Int("minusers"),
+		TopicLength: c.Int("topiclength"),
+	}
+
 	return func(cl *irc.Client, m *irc.Message) {
 		switch m.Command {
 		case "001":
@@ -120,7 +135,7 @@ func ircHandler(results *sync.Map, c *cli.Context) irc.HandlerFunc {
 
 			results.Range(func(_, info interface{}) bool {
 				channelInfo := info.(*channelInfo)
-				if channelInfo.Visible > c.Int("minusers") {
+				if channelInfo.Visible > options.MinUsers {
 					filteredChannels = append(filteredChannels, channelInfo)
 				}
 
@@ -135,14 +150,14 @@ func ircHandler(results *sync.Map, c *cli.Context) irc.HandlerFunc {
 				return filteredChannels[i].Name < filteredChannels[j].Name
 			})
 
-			switch c.String("format") {
+			switch options.Format {
 			case "list":
 				data := [][]string{}
 				for _, channelInfo := range filteredChannels {
 					data = append(data, []string{
 						channelInfo.Name,
 						strconv.Itoa(channelInfo.Visible),
-						channelInfo.Topic,
+						truncateString(channelInfo.Topic, 150),
 					})
 				}
 
@@ -165,4 +180,12 @@ func ircHandler(results *sync.Map, c *cli.Context) irc.HandlerFunc {
 			}
 		}
 	}
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+
+	return fmt.Sprintf("%s...", s[:maxLen])
 }
