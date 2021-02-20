@@ -12,9 +12,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/go-irc/irc"
 	"github.com/olekukonko/tablewriter"
 	"github.com/urfave/cli/v2"
+	"gopkg.in/irc.v3"
 )
 
 func main() {
