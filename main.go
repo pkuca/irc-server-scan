@@ -50,7 +50,7 @@ func NewApp() *cli.App {
 				Name:    "minusers",
 				Aliases: []string{"m"},
 				Usage:   "only list channels with users exceeding this value",
-				Value:   500, //nolint:gomnd
+				Value:   50, //nolint:gomnd
 			},
 			&cli.IntFlag{
 				Name:  "topiclength",
