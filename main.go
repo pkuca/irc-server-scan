@@ -80,11 +80,8 @@ func NewApp() *cli.App {
 			}
 
 			client := irc.NewClient(conn, config)
-			if err := client.RunContext(context.Background()); err != nil {
-				return err
-			}
 
-			return nil
+			return client.RunContext(context.Background())
 		},
 	}
 }
