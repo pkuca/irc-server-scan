@@ -39,6 +39,7 @@ func NewApp() *cli.App {
 				Name:     "port",
 				Usage:    "target server port",
 				Required: true,
+				Value:    "6667",
 			},
 			&cli.StringFlag{
 				Name:    "format",
