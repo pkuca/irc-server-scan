@@ -155,7 +155,7 @@ func ircHandler(results *sync.Map, c *cli.Context) irc.HandlerFunc {
 					data = append(data, []string{
 						channelInfo.Name,
 						strconv.Itoa(channelInfo.Visible),
-						truncateString(channelInfo.Topic, 150),
+						truncateString(channelInfo.Topic, options.TopicLength),
 					})
 				}
 
