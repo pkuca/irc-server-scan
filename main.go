@@ -43,12 +43,12 @@ func NewApp() *cli.App {
 			&cli.IntFlag{
 				Name:    "minusers",
 				Aliases: []string{"m"},
-				Usage:   "only list channels with users exceeding this value",
+				Usage:   "filter list results by channel population",
 				Value:   50, //nolint:gomnd
 			},
 			&cli.IntFlag{
 				Name:  "topiclength",
-				Usage: "truncate channel descriptions in 'list' format to this length",
+				Usage: "shorten channel topics in list",
 				Value: 125, //nolint:gomnd
 			},
 		},

@@ -43,7 +43,7 @@ COMMANDS:
 GLOBAL OPTIONS:
    --host value                target server address
    --port value                target server port (default: "6667")
-   --minusers value, -m value  only list channels with users exceeding this value (default: 50)
-   --topiclength value         truncate channel descriptions in 'list' format to this length (default: 125)
+   --minusers value, -m value  filter list results by channel population (default: 50)
+   --topiclength value         shorten channel topics in list (default: 125)
    --help, -h                  show help (default: false)
 ```
