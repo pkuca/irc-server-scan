@@ -64,12 +64,17 @@ func NewApp() *cli.App {
 				idString = fmt.Sprintf("g_%v", rand.Intn(500)) //nolint:gomnd,gosec
 			)
 
+			handlerOpts := &handlerOptions{
+				MinUsers:    cliContext.Int("minusers"),
+				TopicLength: cliContext.Int("topiclength"),
+			}
+
 			config := irc.ClientConfig{
 				Nick:    idString,
 				Pass:    "",
 				User:    idString,
 				Name:    idString,
-				Handler: ircHandler(results, cliContext),
+				Handler: ircHandler(results, handlerOpts),
 			}
 
 			client := irc.NewClient(conn, config)
@@ -86,15 +91,12 @@ type channelInfo struct {
 	Topic   string
 }
 
-func ircHandler(results *sync.Map, cliContext *cli.Context) irc.HandlerFunc {
-	options := &struct {
-		MinUsers    int
-		TopicLength int
-	}{
-		MinUsers:    cliContext.Int("minusers"),
-		TopicLength: cliContext.Int("topiclength"),
-	}
+type handlerOptions struct {
+	MinUsers    int
+	TopicLength int
+}
 
+func ircHandler(results *sync.Map, options *handlerOptions) irc.HandlerFunc {
 	return func(cl *irc.Client, message *irc.Message) {
 		switch message.Command {
 		case "001":
