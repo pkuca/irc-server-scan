@@ -52,11 +52,11 @@ func NewApp() *cli.App {
 				Value: 125, //nolint:gomnd
 			},
 		},
-		Action: func(c *cli.Context) error {
-			addr := fmt.Sprintf("%s:%s", c.String("host"), c.String("port"))
+		Action: func(cliContext *cli.Context) error {
+			addr := fmt.Sprintf("%s:%s", cliContext.String("host"), cliContext.String("port"))
 			conn, err := net.Dial("tcp", addr)
 			if err != nil {
-				return err
+				return fmt.Errorf("irc client tcp connection failure: %w", err)
 			}
 
 			var (
@@ -69,33 +69,34 @@ func NewApp() *cli.App {
 				Pass:    "",
 				User:    idString,
 				Name:    idString,
-				Handler: ircHandler(results, c),
+				Handler: ircHandler(results, cliContext),
 			}
 
 			client := irc.NewClient(conn, config)
 
-			return client.RunContext(context.Background())
+			return fmt.Errorf("irc client run context failure: %w", client.RunContext(context.Background()))
 		},
 	}
 }
 
+// channelInfo represents the structure of the result list table.
 type channelInfo struct {
 	Name    string
 	Visible int
 	Topic   string
 }
 
-func ircHandler(results *sync.Map, c *cli.Context) irc.HandlerFunc {
+func ircHandler(results *sync.Map, cliContext *cli.Context) irc.HandlerFunc {
 	options := &struct {
 		MinUsers    int
 		TopicLength int
 	}{
-		MinUsers:    c.Int("minusers"),
-		TopicLength: c.Int("topiclength"),
+		MinUsers:    cliContext.Int("minusers"),
+		TopicLength: cliContext.Int("topiclength"),
 	}
 
-	return func(cl *irc.Client, m *irc.Message) {
-		switch m.Command {
+	return func(cl *irc.Client, message *irc.Message) {
+		switch message.Command {
 		case "001":
 			fmt.Println("starting scan...")
 
@@ -105,9 +106,9 @@ func ircHandler(results *sync.Map, c *cli.Context) irc.HandlerFunc {
 			}
 		case "322":
 			var (
-				channel = m.Params[1]
-				visible = m.Params[2]
-				topic   = m.Params[3]
+				channel = message.Params[1]
+				visible = message.Params[2]
+				topic   = message.Params[3]
 			)
 
 			visibleInt, err := strconv.Atoi(visible)
@@ -123,7 +124,10 @@ func ircHandler(results *sync.Map, c *cli.Context) irc.HandlerFunc {
 			filteredChannels := []*channelInfo{}
 
 			results.Range(func(_, info interface{}) bool {
-				channelInfo := info.(*channelInfo)
+				channelInfo, ok := info.(*channelInfo)
+				if !ok {
+					fmt.Println("channelInfo type assertion failed")
+				}
 				if channelInfo.Visible > options.MinUsers {
 					filteredChannels = append(filteredChannels, channelInfo)
 				}
