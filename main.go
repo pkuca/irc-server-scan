@@ -9,7 +9,6 @@ import (
 	"os"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/olekukonko/tablewriter"
@@ -40,12 +39,6 @@ func NewApp() *cli.App {
 				Usage:    "target server port",
 				Required: true,
 				Value:    "6667",
-			},
-			&cli.StringFlag{
-				Name:    "format",
-				Aliases: []string{"f"},
-				Usage:   "can also be 'csv'",
-				Value:   "list",
 			},
 			&cli.IntFlag{
 				Name:    "minusers",
@@ -94,11 +87,9 @@ type channelInfo struct {
 
 func ircHandler(results *sync.Map, c *cli.Context) irc.HandlerFunc {
 	options := &struct {
-		Format      string
 		MinUsers    int
 		TopicLength int
 	}{
-		Format:      c.String("format"),
 		MinUsers:    c.Int("minusers"),
 		TopicLength: c.Int("topiclength"),
 	}
@@ -148,34 +139,22 @@ func ircHandler(results *sync.Map, c *cli.Context) irc.HandlerFunc {
 				return filteredChannels[i].Name < filteredChannels[j].Name
 			})
 
-			switch options.Format {
-			case "list":
-				data := [][]string{}
-				for _, channelInfo := range filteredChannels {
-					data = append(data, []string{
-						channelInfo.Name,
-						strconv.Itoa(channelInfo.Visible),
-						truncateString(channelInfo.Topic, options.TopicLength),
-					})
-				}
-
-				table := tablewriter.NewWriter(os.Stdout)
-				table.SetHeader([]string{"Name", "Visible", "Topic"})
-				table.SetAutoWrapText(false)
-				table.AppendBulk(data)
-				table.Render()
-
-				os.Exit(0)
-			case "csv":
-				channels := []string{}
-				for _, channelInfo := range filteredChannels {
-					channels = append(channels, channelInfo.Name)
-				}
-
-				fmt.Println(strings.Join(channels, ","))
-
-				os.Exit(0)
+			data := [][]string{}
+			for _, channelInfo := range filteredChannels {
+				data = append(data, []string{
+					channelInfo.Name,
+					strconv.Itoa(channelInfo.Visible),
+					truncateString(channelInfo.Topic, options.TopicLength),
+				})
 			}
+
+			table := tablewriter.NewWriter(os.Stdout)
+			table.SetHeader([]string{"Name", "Visible", "Topic"})
+			table.SetAutoWrapText(false)
+			table.AppendBulk(data)
+			table.Render()
+
+			os.Exit(0)
 		}
 	}
 }
