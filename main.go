@@ -31,7 +31,7 @@ func NewApp() *cli.App {
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:     "host",
-				Usage:    "target server address",
+				Usage:    "required: target server address",
 				Required: true,
 			},
 			&cli.StringFlag{

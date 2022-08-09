@@ -41,9 +41,11 @@ COMMANDS:
    help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   --host value                target server address
-   --port value                target server port (default: "6667")
-   --minusers value, -m value  filter list results by channel population (default: 50)
-   --topiclength value         shorten channel topics in list (default: 125)
-   --help, -h                  show help (default: false)
+   --host value         required: target server address
+   --port value         target server port (default: "6667")
+   --minusers value     filter list results by channel population (default: 500)
+   --sort value         sorting method - can also be "pop" to sort by channel population (default: "alpha")
+   --topiclength value  shorten channel topics in list (default: 125)
+   --help, -h           show help (default: false)
 ```
+
