@@ -35,16 +35,19 @@ func NewApp() *cli.App {
 				Required: true,
 			},
 			&cli.StringFlag{
-				Name:     "port",
-				Usage:    "target server port",
-				Required: true,
-				Value:    "6667",
+				Name:  "port",
+				Usage: "target server port",
+				Value: "6667",
 			},
 			&cli.IntFlag{
-				Name:    "minusers",
-				Aliases: []string{"m"},
-				Usage:   "filter list results by channel population",
-				Value:   50, //nolint:gomnd
+				Name:  "minusers",
+				Usage: "filter list results by channel population",
+				Value: 500, //nolint:gomnd
+			},
+			&cli.StringFlag{
+				Name:  "sort",
+				Usage: `sorting method - can also be "pop" to sort by channel population`,
+				Value: "alpha",
 			},
 			&cli.IntFlag{
 				Name:  "topiclength",
@@ -66,6 +69,7 @@ func NewApp() *cli.App {
 
 			handlerOpts := &handlerOptions{
 				MinUsers:    cliContext.Int("minusers"),
+				Sort:        cliContext.String("sort"),
 				TopicLength: cliContext.Int("topiclength"),
 			}
 
@@ -93,6 +97,7 @@ type channelInfo struct {
 
 type handlerOptions struct {
 	MinUsers    int
+	Sort        string
 	TopicLength int
 }
 
@@ -122,42 +127,48 @@ func ircHandler(results *sync.Map, options *handlerOptions) irc.HandlerFunc {
 
 			results.Store(channel, &channelInfo{channel, visibleInt, topic})
 		case "323":
-			// Add channels with more users than `minUsers` to `filteredChannels`.
 			filteredChannels := []*channelInfo{}
 
+			// Show channels with `minUsers` present - adjustable by user.
 			results.Range(func(_, info interface{}) bool {
 				channelInfo, ok := info.(*channelInfo)
 				if !ok {
 					fmt.Println("channelInfo type assertion failed")
 				}
-				if channelInfo.Visible > options.MinUsers {
+				if channelInfo.Visible >= options.MinUsers {
 					filteredChannels = append(filteredChannels, channelInfo)
 				}
 
 				return true
 			})
 
-			// Print total channel count.
 			fmt.Println(len(filteredChannels), "results")
 
-			// Sort channels alphabetically.
-			sort.Slice(filteredChannels, func(i, j int) bool {
-				return filteredChannels[i].Name < filteredChannels[j].Name
-			})
+			switch options.Sort {
+			case "alpha":
+				sort.Slice(filteredChannels, func(i, j int) bool {
+					return filteredChannels[i].Name < filteredChannels[j].Name
+				})
+			case "pop":
+				sort.Slice(filteredChannels, func(i, j int) bool {
+					return filteredChannels[i].Visible > filteredChannels[j].Visible
+				})
+			}
 
-			data := [][]string{}
+			// Create table for rendering.
+			table := tablewriter.NewWriter(os.Stdout)
+			table.SetHeader([]string{"Name", "Visible", "Topic"})
+			table.SetAutoWrapText(false)
+
+			// Append records to table for rendering.
 			for _, channelInfo := range filteredChannels {
-				data = append(data, []string{
+				table.Append([]string{
 					channelInfo.Name,
 					strconv.Itoa(channelInfo.Visible),
 					truncateString(channelInfo.Topic, options.TopicLength),
 				})
 			}
 
-			table := tablewriter.NewWriter(os.Stdout)
-			table.SetHeader([]string{"Name", "Visible", "Topic"})
-			table.SetAutoWrapText(false)
-			table.AppendBulk(data)
 			table.Render()
 
 			os.Exit(0)
