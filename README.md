@@ -1,11 +1,13 @@
 # irc-server-scan
 
 ## Installation
+
 ```bash
 go install github.com/pkuca/irc-server-scan@latest
 ```
 
 ## Basic Usage
+
 ```bash
 $ irc-server-scan --host some.irc.host --minusers 750
 starting scan...
@@ -30,7 +32,8 @@ starting scan...
 ```
 
 ## Options
-```
+
+```text
 NAME:
    irc-server-scan - scan an irc server for channel populations
 
@@ -48,4 +51,3 @@ GLOBAL OPTIONS:
    --topiclength value  shorten channel topics in list (default: 125)
    --help, -h           show help (default: false)
 ```
-
